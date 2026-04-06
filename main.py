@@ -30,9 +30,15 @@ from picamera2 import Picamera2
 import camera_utils
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────
-JPEG_QUALITY   = 70
-SERVER_PORT    = 8000
-LOG_LEVEL      = logging.INFO
+JPEG_QUALITY      = 70
+SERVER_PORT       = 8000
+LOG_LEVEL         = logging.INFO
+
+# Fraction of each axis to use for the centre-crop sharpness window.
+# 0.5 → centre 50 % of width × 50 % of height = 25 % of total pixels.
+# Reducing this cuts sharpness compute time proportionally with no loss
+# of focus accuracy for a centred subject.
+SHARPNESS_CROP    = 0.5
 
 # Resolution / framerate presets.
 # "fps" controls the camera pipeline rate AND our processing deadline.
@@ -165,11 +171,17 @@ def frame_loop() -> None:
                 _sharp_future = None
 
             # ── Submit sharpness job every 3rd frame ──────────────────────
-            # frame.tobytes() copies the data so the camera buffer can be
-            # safely reused before the worker finishes.
+            # Analyse only the centre crop (SHARPNESS_CROP fraction of each
+            # axis) — proportionally fewer pixels, same focus accuracy for a
+            # centred subject.  np.ascontiguousarray ensures the slice is a
+            # packed RGB buffer before tobytes() copies it for the worker.
             if frame_count % 3 == 0 and _sharp_future is None:
+                ch = int(h * SHARPNESS_CROP) & ~1   # keep even (downsample needs it)
+                cw = int(w * SHARPNESS_CROP) & ~1
+                y0, x0 = (h - ch) // 2, (w - cw) // 2
+                crop = np.ascontiguousarray(frame[y0:y0 + ch, x0:x0 + cw])
                 _sharp_future = _executor.submit(
-                    _sharpness_worker, frame.tobytes(), w, h)
+                    _sharpness_worker, crop.tobytes(), cw, ch)
 
             frame_count += 1
 
