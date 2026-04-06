@@ -282,49 +282,10 @@ HTML = """<!DOCTYPE html>
       font-family: 'Azeret Mono', 'Courier New', monospace;
       min-height: 100vh;
       display: grid;
-      grid-template-rows: 44px 1fr 32px;
+      /* Changed from 3 rows to a single row taking up all the space */
+      grid-template-rows: 1fr; 
       overflow: hidden;
     }
-
-    /* ── HEADER ──────────────────────────────────────────────────────── */
-    header {
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 20px;
-      gap: 16px;
-    }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 10px;
-      letter-spacing: 4px;
-      text-transform: uppercase;
-      color: var(--bright);
-      white-space: nowrap;
-    }
-    .live-dot {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green);
-      animation: blink 2.4s ease-in-out infinite;
-      flex-shrink: 0;
-    }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
-
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      font-size: 9px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--dim);
-    }
-    #clock { color: var(--text); }
 
     /* ── MAIN GRID ───────────────────────────────────────────────────── */
     main {
@@ -349,7 +310,8 @@ HTML = """<!DOCTYPE html>
     .frame-wrap img {
       display: block;
       max-width: 100%;
-      max-height: calc(100vh - 76px - 40px);
+      /* Increased max-height since the top/bottom bars are gone */
+      max-height: calc(100vh - 40px);
       object-fit: contain;
       image-rendering: crisp-edges;
     }
@@ -472,34 +434,9 @@ HTML = """<!DOCTYPE html>
     }
     .pill.on::after { transform: translateX(16px); }
 
-    /* ── FOOTER ──────────────────────────────────────────────────────── */
-    footer {
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 24px;
-      padding: 0 20px;
-      font-size: 8px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--dim);
-    }
-    footer b { color: var(--text); font-weight: 400; }
-    .footer-sep { flex: 1; }
   </style>
 </head>
 <body>
-  <header>
-    <div class="logo">
-      <div class="live-dot"></div>
-      Pi HQ Camera &mdash; Live Monitor
-    </div>
-    <div class="header-right">
-      <span id="clock">--:--:--</span>
-      <span id="h-preset">medium</span>
-    </div>
-  </header>
-
   <main>
     <div class="video-panel">
       <div class="frame-wrap" id="frame-wrap">
@@ -555,14 +492,6 @@ HTML = """<!DOCTYPE html>
       </div>
 
     </div></main>
-
-  <footer>
-    <span>Preset: <b id="f-preset">medium</b></span>
-    <span>Res: <b id="f-res">640&times;480</b></span>
-    <span>Auto-FPS: <b id="f-afps">on</b></span>
-    <span class="footer-sep"></span>
-    <span>Pi HQ Camera</span>
-  </footer>
 
   <script>
     /* ── State ─────────────────────────────────────────────────────── */
@@ -644,7 +573,6 @@ HTML = """<!DOCTYPE html>
           const sharp  = parseFloat(d.sharpness);
           const pct    = parseFloat(d.percent);
           const preset = d.preset;
-          const res    = d.resolution;
 
           /* Sharpness tile */
           document.getElementById('sharp-val').textContent = isNaN(sharp) ? '—' : sharp.toFixed(0);
@@ -663,11 +591,6 @@ HTML = """<!DOCTYPE html>
             b.classList.toggle('active', b.dataset.preset === preset);
           });
 
-          /* Footer + header */
-          document.getElementById('f-preset').textContent = preset;
-          document.getElementById('f-res').textContent    = res;
-          document.getElementById('h-preset').textContent = preset;
-
           /* Sparkline */
           if (!isNaN(sharp)) {
             hist.push(sharp);
@@ -682,11 +605,9 @@ HTML = """<!DOCTYPE html>
         });
     }
 
-    /* ── Lightweight UI Loop (Clock & FPS Calculation only) ──────────── */
+    /* ── Lightweight UI Loop (FPS Calculation only) ──────────── */
     function updateUI() {
       const now = Date.now();
-      document.getElementById('clock').textContent = new Date().toTimeString().slice(0, 8);
-
       const elapsed = (now - lastT) / 1000;
       if (elapsed >= 1.0) {
         measFps = Math.round(fc / elapsed);
@@ -704,7 +625,6 @@ HTML = """<!DOCTYPE html>
     function toggleAutoFps(pill) {
       pill.classList.toggle('on');
       const on = pill.classList.contains('on');
-      document.getElementById('f-afps').textContent = on ? 'on' : 'off';
       fetch('/config?auto_fps=' + (on ? '1' : '0')).catch(() => {});
     }
 
