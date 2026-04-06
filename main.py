@@ -739,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
     # ── Endpoints ──────────────────────────────────────────────────────────
 
     def _serve_html(self):
-        self._write(200, "text/html; charset=utf-8", HTML)
+        self._write(200, "text/html; charset=utf-8", HTML.encode('utf-8'))
 
     def _serve_frame(self):
         with _buf_lock:
