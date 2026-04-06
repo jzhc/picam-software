@@ -32,9 +32,9 @@ LOG_LEVEL      = logging.INFO
 SHARPNESS_CROP = 0.5
 
 PRESETS = {
-    "low":    {"size": (320,  240), "fps": 30, "label": "320×240  / 30 fps"},
-    "medium": {"size": (640,  480), "fps": 20, "label": "640×480  / 20 fps"},
-    "high":   {"size": (1280, 960), "fps": 10, "label": "1280×960 / 10 fps"},
+    "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
+    "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
+    "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
@@ -103,7 +103,7 @@ def _apply_preset(name: str) -> None:
             "AeEnable":  True,
             "AwbEnable": True,
         },
-        buffer_count=2,
+        buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
     
     camera.configure(config)
@@ -172,13 +172,19 @@ def terminal_input_loop() -> None:
 
 def frame_loop() -> None:
     """
-    Main loop: capture frame → calculate sharpness → update terminal stats.
+    Main loop: zero-copy capture → sharpness (async) → terminal stats.
+
+    Uses capture_request() instead of capture_array() so the raw frame data
+    is accessed directly from the camera DMA buffer with no full-frame copy.
+    Only the small centre-crop is copied (via tobytes()) to hand off to the
+    sharpness worker. The request is released immediately after the crop is
+    taken, returning the DMA buffer to the pipeline as fast as possible.
     """
     global _pending_preset, sharpness_val, sharpness_pct
 
     _sharp_future = None
     frame_count   = 0
-    
+
     fps_counter   = 0
     current_fps   = 0.0
     last_time     = time.monotonic()
@@ -197,9 +203,15 @@ def frame_loop() -> None:
             _apply_preset(pending)
 
         try:
-            # Capture blocks until a frame is ready, acting as our clock sync
-            frame    = camera.capture_array()
-            h_f, w_f = frame.shape[:2]
+            # Zero-copy acquire: returns a handle to the DMA buffer directly.
+            # No numpy array is allocated; the frame stays in camera memory.
+            request = camera.capture_request()
+            buf     = request.make_buffer("main")   # memoryview, no copy
+
+            # Wrap in numpy without copying so we can slice for the crop.
+            with _preset_lock:
+                w_f, h_f = PRESETS[current_preset]["size"]
+            frame = np.frombuffer(buf, dtype=np.uint8).reshape(h_f, w_f, 3)
 
             # ── Collect finished sharpness result ─────────────────────────
             if _sharp_future is not None and _sharp_future.done():
@@ -213,6 +225,9 @@ def frame_loop() -> None:
                 _sharp_future = None
 
             # ── Submit centre-crop sharpness job every 3rd frame ──────────
+            # tobytes() copies only the crop (~25 % of frame pixels).
+            # request.release() then happens immediately, returning the DMA
+            # buffer to the camera pipeline without waiting on the worker.
             if frame_count % 3 == 0 and _sharp_future is None:
                 ch   = int(h_f * SHARPNESS_CROP) & ~1
                 cw   = int(w_f * SHARPNESS_CROP) & ~1
@@ -222,30 +237,39 @@ def frame_loop() -> None:
                 _sharp_future = _executor.submit(
                     _sharpness_worker, crop.tobytes(), cw, ch)
 
+            # Release DMA buffer as early as possible so the camera pipeline
+            # can reuse it for the next frame without waiting on us.
+            request.release()
+
             frame_count += 1
             fps_counter += 1
-            
-            # ── Calculate FPS ─────────────────────────────────────────────
+
+            # ── Calculate FPS (once per second) ───────────────────────────
             now = time.monotonic()
             if now - last_time >= 1.0:
                 current_fps = fps_counter / (now - last_time)
                 fps_counter = 0
-                last_time = now
+                last_time   = now
 
-            # ── Print live terminal readout ───────────────────────────────
-            with sharp_lock:
-                sv = sharpness_val
-                sp = sharpness_pct
-            with _preset_lock:
-                label = PRESETS[current_preset]["label"]
+            # ── Print terminal readout every 10th frame only ───────────────
+            # A flush syscall every frame is measurable overhead at high FPS.
+            # Updating ~6x per second is plenty for a human to read.
+            if frame_count % 10 == 0:
+                with sharp_lock:
+                    sv = sharpness_val
+                    sp = sharpness_pct
+                with _preset_lock:
+                    label = PRESETS[current_preset]["label"]
 
-            # \r returns cursor to the start of the line to overwrite it
-            status = f"\r  [ Preset: {label:<16} ]   [ Sharpness: {sv:5.0f} ({sp:5.1f}%) ]   [ FPS: {current_fps:4.1f} ]   "
-            sys.stdout.write(status)
-            sys.stdout.flush()
+                status = (
+                    f"\r  [ Preset: {label:<16} ]"
+                    f"   [ Sharpness: {sv:5.0f} ({sp:5.1f}%) ]"
+                    f"   [ FPS: {current_fps:4.1f} ]   "
+                )
+                sys.stdout.write(status)
+                sys.stdout.flush()
 
         except Exception as exc:
-            # Drop down a line so we don't overwrite the error with the status bar
             sys.stdout.write(f"\r\n[WARNING] Frame error: {exc}\r\n")
 
 
@@ -265,7 +289,7 @@ def main() -> None:
             "AeEnable":  True,
             "AwbEnable": True,
         },
-        buffer_count=2,
+        buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
     camera.configure(config)
     
