@@ -178,6 +178,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def handle_error(self, request, client_address):
+        pass
+
 # ── UTILS ──────────────────────────────────────
 def get_ip():
     try:
