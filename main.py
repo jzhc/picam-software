@@ -38,7 +38,7 @@ LOG_LEVEL         = logging.INFO
 # 0.5 → centre 50 % of width × 50 % of height = 25 % of total pixels.
 # Reducing this cuts sharpness compute time proportionally with no loss
 # of focus accuracy for a centred subject.
-SHARPNESS_CROP    = 0.5
+SHARPNESS_CROP    = 0.3
 
 # Resolution / framerate presets.
 # "fps" controls the camera pipeline rate AND our processing deadline.
