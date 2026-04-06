@@ -20,8 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pygame
-from picamera2 import Picamera2
-from picamera2.display import DrmPreview
+from picamera2 import Picamera2, Preview
 
 import camera_utils
 
@@ -102,7 +101,7 @@ def _apply_preset(name: str) -> None:
         buffer_count=2,
     )
     camera.configure(config)
-    camera.start_preview(DrmPreview())
+    camera.start_preview(Preview.DRM)
     camera.start()
 
     with _preset_lock:
@@ -304,7 +303,7 @@ def main() -> None:
         buffer_count=2,
     )
     camera.configure(config)
-    camera.start_preview(DrmPreview())
+    camera.start_preview(Preview.DRM)
     camera.start()
     log.info("Camera started — preset: %s", p["label"])
 
