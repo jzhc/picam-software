@@ -30,11 +30,11 @@ Open the URL printed in the terminal in any browser on the same WiFi network. Us
 | File | Description |
 |---|---|
 | `main.py` | Main application — camera, web server, sharpness logic |
+| `main_hd.py` | CLI application — Native HDMI preview (DRM) and terminal statistics |
 | `camera_utils.c` | C extension — sharpness computation, downsampling, and JPEG encoding via libturbojpeg |
 | `setup.py` | Builds the C extension |
 
-## Web Interface
-Live preview at 640x480 targeting 15-20fps with two focus metrics:
+## Interface Values
 
 - **Sharpness** — raw Laplacian variance value
 - **Focus %** — relative focus percentage based on a rolling best-focus reference
