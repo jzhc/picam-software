@@ -304,6 +304,7 @@ def main() -> None:
         buffer_count=2,
     )
     camera.configure(config)
+    camera.start_preview(DrmPreview())
     camera.start()
     log.info("Camera started — preset: %s", p["label"])
 
