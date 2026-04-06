@@ -252,6 +252,7 @@ def frame_loop() -> None:
 # Intentionally kept as a single string to avoid any file-serving complexity
 # on the Pi.  Fonts load from Google Fonts if the browser has internet access,
 # otherwise falls back gracefully to system monospace.
+# Note: String is now defined normally (without b"")
 
 HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -352,24 +353,6 @@ HTML = """<!DOCTYPE html>
       object-fit: contain;
       image-rendering: crisp-edges;
     }
-    /* Scanline overlay */
-    .frame-wrap::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: repeating-linear-gradient(
-        to bottom,
-        transparent 0, transparent 3px,
-        rgba(0,0,0,.12) 3px, rgba(0,0,0,.12) 4px
-      );
-      pointer-events: none;
-    }
-    /* Corner brackets */
-    .brk { position: absolute; width: 14px; height: 14px; }
-    .brk.tl { top:0;    left:0;  border-top:1px solid var(--green); border-left:1px solid var(--green); }
-    .brk.tr { top:0;    right:0; border-top:1px solid var(--green); border-right:1px solid var(--green); }
-    .brk.bl { bottom:0; left:0;  border-bottom:1px solid var(--green); border-left:1px solid var(--green); }
-    .brk.br { bottom:0; right:0; border-bottom:1px solid var(--green); border-right:1px solid var(--green); }
 
     /* ── SIDEBAR ─────────────────────────────────────────────────────── */
     .sidebar {
@@ -518,19 +501,14 @@ HTML = """<!DOCTYPE html>
   </header>
 
   <main>
-    <!-- VIDEO -->
     <div class="video-panel">
       <div class="frame-wrap" id="frame-wrap">
-        <div class="brk tl"></div><div class="brk tr"></div>
-        <div class="brk bl"></div><div class="brk br"></div>
         <img id="feed" src="/frame.jpg" alt="Live stream">
       </div>
     </div>
 
-    <!-- SIDEBAR -->
     <div class="sidebar">
 
-      <!-- Sharpness + FPS tiles -->
       <div class="block">
         <div class="block-title">Metrics</div>
         <div class="stat-row">
@@ -545,20 +523,17 @@ HTML = """<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- Focus bar -->
       <div class="block">
         <div class="block-title">Relative Focus</div>
         <div class="focus-pct" id="focus-pct">0.0%</div>
         <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
       </div>
 
-      <!-- Sparkline -->
       <div class="block">
         <div class="block-title">Sharpness History</div>
         <canvas id="sparkline" width="228" height="52"></canvas>
       </div>
 
-      <!-- Resolution presets -->
       <div class="block">
         <div class="block-title">Resolution / FPS</div>
         <div class="preset-list">
@@ -571,7 +546,6 @@ HTML = """<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- Auto-FPS -->
       <div class="block">
         <div class="block-title">Auto-FPS</div>
         <div class="toggle-row">
@@ -580,8 +554,7 @@ HTML = """<!DOCTYPE html>
         </div>
       </div>
 
-    </div><!-- /sidebar -->
-  </main>
+    </div></main>
 
   <footer>
     <span>Preset: <b id="f-preset">medium</b></span>
@@ -642,27 +615,29 @@ HTML = """<!DOCTYPE html>
       return 'var(--red)';
     }
 
-    /* ── Main update loop ────────────────────────────────────────────── */
-    function update() {
-      const now = Date.now();
+    /* ── Frame Fetching (Event Driven, No Flickering) ────────────────── */
+    const visibleFeed = document.getElementById('feed');
+    const bufferImg = new Image();
 
-      /* Clock */
-      document.getElementById('clock').textContent =
-        new Date().toTimeString().slice(0, 8);
-
-      /* Frame */
-      document.getElementById('feed').src = '/frame.jpg?' + now;
+    bufferImg.onload = () => {
+      // Only swap the source once the image is fully downloaded
+      visibleFeed.src = bufferImg.src;
       fc++;
+      // Immediately fetch the next frame
+      requestNextFrame();
+    };
 
-      /* Measured FPS (updated every second) */
-      const elapsed = (now - lastT) / 1000;
-      if (elapsed >= 1.0) {
-        measFps = Math.round(fc / elapsed);
-        fc = 0; lastT = now;
-        document.getElementById('fps-val').textContent = measFps;
-      }
+    bufferImg.onerror = () => {
+      // If a frame drops/fails, wait half a second before trying again
+      setTimeout(requestNextFrame, 500);
+    };
 
-      /* Status from server */
+    function requestNextFrame() {
+      bufferImg.src = '/frame.jpg?' + Date.now();
+    }
+
+    /* ── Status Fetching (Promise Chaining) ──────────────────────────── */
+    function fetchStatus() {
       fetch('/status')
         .then(r => r.json())
         .then(d => {
@@ -672,8 +647,7 @@ HTML = """<!DOCTYPE html>
           const res    = d.resolution;
 
           /* Sharpness tile */
-          document.getElementById('sharp-val').textContent =
-            isNaN(sharp) ? '—' : sharp.toFixed(0);
+          document.getElementById('sharp-val').textContent = isNaN(sharp) ? '—' : sharp.toFixed(0);
 
           /* Focus bar */
           const col = focusColor(pct);
@@ -701,7 +675,25 @@ HTML = """<!DOCTYPE html>
             drawSparkline(hist);
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          // Wait 250ms after the last request finished before polling again
+          setTimeout(fetchStatus, 250); 
+        });
+    }
+
+    /* ── Lightweight UI Loop (Clock & FPS Calculation only) ──────────── */
+    function updateUI() {
+      const now = Date.now();
+      document.getElementById('clock').textContent = new Date().toTimeString().slice(0, 8);
+
+      const elapsed = (now - lastT) / 1000;
+      if (elapsed >= 1.0) {
+        measFps = Math.round(fc / elapsed);
+        fc = 0; 
+        lastT = now;
+        document.getElementById('fps-val').textContent = measFps;
+      }
     }
 
     /* ── Controls ────────────────────────────────────────────────────── */
@@ -716,8 +708,10 @@ HTML = """<!DOCTYPE html>
       fetch('/config?auto_fps=' + (on ? '1' : '0')).catch(() => {});
     }
 
-    setInterval(update, 50);
-    update();
+    // Bootstrap the loops
+    setInterval(updateUI, 100); 
+    requestNextFrame();
+    fetchStatus();
   </script>
 </body>
 </html>"""
@@ -739,6 +733,7 @@ class Handler(BaseHTTPRequestHandler):
     # ── Endpoints ──────────────────────────────────────────────────────────
 
     def _serve_html(self):
+        # Encode the standard Python string to bytes before sending
         self._write(200, "text/html; charset=utf-8", HTML.encode('utf-8'))
 
     def _serve_frame(self):
@@ -855,7 +850,10 @@ def main():
     except KeyboardInterrupt:
         log.info("Shutting down...")
     finally:
-        server.shutdown()
+        # Use server_close() instead of shutdown() to prevent deadlock on Ctrl+C
+        server.server_close()
+        
+        # Stop the camera and kill the thread pool
         camera.stop()
         _executor.shutdown(wait=False)
 
