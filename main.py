@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pi HQ Camera — Live Preview with Dynamic Resolution & Auto-FPS
+Pi HQ Camera — Live Preview with Dynamic Resolution
 Stream: http://<pi-ip>:8000
 
 Optimisations vs. original:
@@ -10,8 +10,6 @@ Optimisations vs. original:
   • frame.tobytes() copy only for the async sharpness path (every 3rd frame).
   • Deadline-based adaptive sleep removes accumulated drift.
   • Dynamic resolution/FPS presets switchable via HTTP or UI buttons.
-  • Auto-FPS: scene-activity detector adjusts processing rate without
-    touching the camera pipeline (no reconfigure needed).
   • Double-buffered JPEG store — HTTP handler always gets the last complete
     frame without blocking the capture loop.
 """
@@ -45,13 +43,6 @@ PRESETS = {
 }
 DEFAULT_PRESET = "medium"
 
-# Auto-FPS: variance of the last N sharpness readings is used as a proxy
-# for scene activity.  Below LOW → idle → halve the processing rate.
-# Above HIGH → motion → restore full preset rate.
-AUTO_FPS_WINDOW           = 30    # readings
-AUTO_FPS_VARIANCE_LOW     = 300.0
-AUTO_FPS_VARIANCE_HIGH    = 3000.0
-
 # ── LOGGING ─────────────────────────────────────────────────────────────────
 logging.basicConfig(level=LOG_LEVEL, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -73,13 +64,8 @@ target_fps     = PRESETS[DEFAULT_PRESET]["fps"]
 _preset_lock   = threading.Lock()
 _pending_preset: str | None = None  # written by HTTP thread, read by frame loop
 
-auto_fps_enabled = True
-_auto_fps_lock   = threading.Lock()
-
 # Rolling history for sharpness-to-percent conversion (last 300 readings).
 _sharp_history  = deque(maxlen=300)
-# Shorter window for scene-activity / auto-FPS detection.
-_scene_window   = deque(maxlen=AUTO_FPS_WINDOW)
 
 # Thread pool: one worker for async sharpness (GIL released in C → true concurrency).
 _executor      = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sharp")
@@ -102,44 +88,6 @@ def _sharpness_worker(raw: bytes, w: int, h: int):
     val = camera_utils.compute_sharpness(raw, w, h)
     pct = _sharpness_to_pct(val)
     return val, pct
-
-
-# ── AUTO-FPS ──────────────────────────────────────────────────────────────
-
-def _update_auto_fps(sharpness: float) -> None:
-    """
-    Adjust `target_fps` based on scene activity (variance of sharpness).
-    Operates within the bounds of the current preset's configured FPS.
-    Only adjusts our *processing* sleep — the camera pipeline is unchanged.
-    """
-    global target_fps, auto_fps_enabled
-
-    with _auto_fps_lock:
-        if not auto_fps_enabled:
-            return
-
-    _scene_window.append(sharpness)
-    if len(_scene_window) < AUTO_FPS_WINDOW // 2:
-        return
-
-    vals = list(_scene_window)
-    mean = sum(vals) / len(vals)
-    var  = sum((v - mean) ** 2 for v in vals) / len(vals)
-
-    with _preset_lock:
-        max_fps = PRESETS[current_preset]["fps"]
-    min_fps = max(5, max_fps // 3)
-
-    if var < AUTO_FPS_VARIANCE_LOW:
-        new_fps = min_fps
-    elif var > AUTO_FPS_VARIANCE_HIGH:
-        new_fps = max_fps
-    else:
-        t = (var - AUTO_FPS_VARIANCE_LOW) / (
-            AUTO_FPS_VARIANCE_HIGH - AUTO_FPS_VARIANCE_LOW)
-        new_fps = int(min_fps + t * (max_fps - min_fps))
-
-    target_fps = max(min_fps, min(max_fps, new_fps))
 
 
 # ── PRESET SWITCHING ───────────────────────────────────────────────────────
@@ -212,7 +160,6 @@ def frame_loop() -> None:
                     with sharp_lock:
                         sharpness_val = sv
                         sharpness_pct = sp
-                    _update_auto_fps(sv)
                 except Exception as exc:
                     log.debug("Sharpness result error: %s", exc)
                 _sharp_future = None
@@ -261,18 +208,18 @@ HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Pi HQ Camera</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:      #070708;
-      --panel:   #0d0d0f;
-      --border:  #1a1a1f;
-      --green:   #3dffa0;
-      --amber:   #ffb347;
-      --red:     #ff5f5f;
-      --dim:     #383840;
-      --text:    #909098;
-      --bright:  #d8d8e0;
+      --bg:      #0e0e10;
+      --panel:   #161618;
+      --border:  #2a2a2e;
+      --green:   #4ade9a;
+      --amber:   #f0a050;
+      --red:     #f06060;
+      --label:   #888896;
+      --text:    #c8c8d4;
+      --bright:  #eeeef4;
     }
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
@@ -282,15 +229,13 @@ HTML = """<!DOCTYPE html>
       font-family: 'Azeret Mono', 'Courier New', monospace;
       min-height: 100vh;
       display: grid;
-      /* Changed from 3 rows to a single row taking up all the space */
-      grid-template-rows: 1fr; 
+      grid-template-rows: 1fr;
       overflow: hidden;
     }
 
-    /* ── MAIN GRID ───────────────────────────────────────────────────── */
     main {
       display: grid;
-      grid-template-columns: 1fr 260px;
+      grid-template-columns: 1fr 256px;
       overflow: hidden;
     }
 
@@ -303,14 +248,10 @@ HTML = """<!DOCTYPE html>
       border-right: 1px solid var(--border);
       overflow: hidden;
     }
-    .frame-wrap {
-      position: relative;
-      display: inline-flex;
-    }
+    .frame-wrap { display: inline-flex; }
     .frame-wrap img {
       display: block;
       max-width: 100%;
-      /* Increased max-height since the top/bottom bars are gone */
       max-height: calc(100vh - 40px);
       object-fit: contain;
       image-rendering: crisp-edges;
@@ -320,126 +261,95 @@ HTML = """<!DOCTYPE html>
     .sidebar {
       display: flex;
       flex-direction: column;
-      gap: 0;
       overflow-y: auto;
       scrollbar-width: none;
     }
     .sidebar::-webkit-scrollbar { display: none; }
 
     .block {
-      padding: 14px 16px;
+      padding: 16px;
       border-bottom: 1px solid var(--border);
     }
     .block-title {
-      font-size: 8px;
-      letter-spacing: 3px;
+      font-size: 9px;
+      letter-spacing: 2px;
       text-transform: uppercase;
-      color: var(--dim);
-      margin-bottom: 10px;
+      color: var(--label);
+      margin-bottom: 12px;
     }
 
-    /* Stat tiles */
+    /* ── STAT TILES ──────────────────────────────────────────────────── */
     .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .stat-tile {
       background: var(--panel);
       border: 1px solid var(--border);
-      padding: 10px;
+      padding: 10px 12px;
     }
     .stat-label {
-      font-size: 7px;
-      letter-spacing: 2px;
+      font-size: 8px;
+      letter-spacing: 1.5px;
       text-transform: uppercase;
-      color: var(--dim);
-      margin-bottom: 5px;
+      color: var(--label);
+      margin-bottom: 6px;
     }
     .stat-val {
-      font-size: 20px;
-      font-weight: 700;
+      font-size: 22px;
+      font-weight: 600;
       color: var(--green);
       line-height: 1;
       transition: color .3s;
     }
-    .stat-val.amber { color: var(--amber); }
-    .stat-val.red   { color: var(--red);   }
 
-    /* Focus bar */
+    /* ── FOCUS BAR ───────────────────────────────────────────────────── */
     .focus-pct {
-      font-size: 26px;
-      font-weight: 700;
+      font-size: 28px;
+      font-weight: 600;
       color: var(--green);
       line-height: 1;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
       transition: color .3s;
     }
     .bar-track {
-      height: 3px;
+      height: 4px;
       background: var(--border);
+      border-radius: 2px;
     }
     .bar-fill {
       height: 100%;
       background: var(--green);
       width: 0%;
+      border-radius: 2px;
       transition: width .2s ease, background-color .3s;
     }
 
-    /* Sparkline */
+    /* ── SPARKLINE ───────────────────────────────────────────────────── */
     #sparkline { width: 100%; height: 52px; display: block; }
 
-    /* Preset buttons */
-    .preset-list { display: flex; flex-direction: column; gap: 5px; }
+    /* ── PRESET BUTTONS ──────────────────────────────────────────────── */
+    .preset-list { display: flex; flex-direction: column; gap: 6px; }
     .preset-btn {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text);
       font-family: inherit;
-      font-size: 10px;
-      letter-spacing: 1px;
-      padding: 7px 10px;
+      font-size: 11px;
+      padding: 8px 10px;
       cursor: pointer;
       text-align: left;
+      border-radius: 2px;
       transition: border-color .15s, color .15s, background .15s;
     }
-    .preset-btn:hover  { border-color: var(--green); color: var(--bright); }
+    .preset-btn:hover { border-color: var(--text); color: var(--bright); }
     .preset-btn.active {
       border-color: var(--green);
       color: var(--green);
-      background: rgba(61,255,160,.05);
     }
-
-    /* Auto-FPS toggle */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .toggle-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
-    .pill {
-      width: 34px; height: 18px;
-      background: var(--border);
-      border-radius: 9px;
-      position: relative;
-      cursor: pointer;
-      transition: background .2s;
-      flex-shrink: 0;
-    }
-    .pill.on { background: var(--green); }
-    .pill::after {
-      content: '';
-      position: absolute;
-      width: 14px; height: 14px;
-      background: var(--bg);
-      border-radius: 50%;
-      top: 2px; left: 2px;
-      transition: transform .2s;
-    }
-    .pill.on::after { transform: translateX(16px); }
-
   </style>
 </head>
 <body>
   <main>
     <div class="video-panel">
-      <div class="frame-wrap" id="frame-wrap">
+      <div class="frame-wrap">
         <img id="feed" src="/frame.jpg" alt="Live stream">
       </div>
     </div>
@@ -455,7 +365,7 @@ HTML = """<!DOCTYPE html>
           </div>
           <div class="stat-tile">
             <div class="stat-label">FPS</div>
-            <div class="stat-val amber" id="fps-val">&#8212;</div>
+            <div class="stat-val" id="fps-val">&#8212;</div>
           </div>
         </div>
       </div>
@@ -468,40 +378,31 @@ HTML = """<!DOCTYPE html>
 
       <div class="block">
         <div class="block-title">Sharpness History</div>
-        <canvas id="sparkline" width="228" height="52"></canvas>
+        <canvas id="sparkline" width="224" height="52"></canvas>
       </div>
 
       <div class="block">
         <div class="block-title">Resolution / FPS</div>
         <div class="preset-list">
           <button class="preset-btn" data-preset="low"
-                  onclick="setPreset(this)">&#9656; 320&times;240 &middot; 30 fps</button>
+                  onclick="setPreset(this)">320 &times; 240 &middot; 30 fps</button>
           <button class="preset-btn active" data-preset="medium"
-                  onclick="setPreset(this)">&#9656; 640&times;480 &middot; 20 fps</button>
+                  onclick="setPreset(this)">640 &times; 480 &middot; 20 fps</button>
           <button class="preset-btn" data-preset="high"
-                  onclick="setPreset(this)">&#9656; 1280&times;960 &middot; 10 fps</button>
+                  onclick="setPreset(this)">1280 &times; 960 &middot; 10 fps</button>
         </div>
       </div>
 
-      <div class="block">
-        <div class="block-title">Auto-FPS</div>
-        <div class="toggle-row">
-          <span class="toggle-label">Scene Adaptive</span>
-          <div class="pill on" id="afps-pill" onclick="toggleAutoFps(this)"></div>
-        </div>
-      </div>
-
-    </div></main>
+    </div>
+  </main>
 
   <script>
-    /* ── State ─────────────────────────────────────────────────────── */
-    const hist    = [];
-    const MAX_H   = 150;
-    let fc        = 0;
-    let lastT     = Date.now();
-    let measFps   = 0;
+    const hist  = [];
+    const MAX_H = 150;
+    let fc      = 0;
+    let lastT   = Date.now();
 
-    /* ── Sparkline ──────────────────────────────────────────────────── */
+    /* ── Sparkline ───────────────────────────────────────────────────── */
     function drawSparkline(data) {
       const canvas = document.getElementById('sparkline');
       const ctx    = canvas.getContext('2d');
@@ -509,63 +410,50 @@ HTML = """<!DOCTYPE html>
       ctx.clearRect(0, 0, W, H);
       if (data.length < 2) return;
 
-      const min = Math.min(...data);
-      const max = Math.max(...data);
+      const min   = Math.min(...data);
+      const max   = Math.max(...data);
       const range = (max - min) || 1;
-
-      const pts = data.map((v, i) => ({
+      const pts   = data.map((v, i) => ({
         x: (i / (data.length - 1)) * W,
         y: H - 2 - ((v - min) / range) * (H - 8)
       }));
 
-      /* Glow line */
-      ctx.save();
-      ctx.strokeStyle = '#3dffa0';
+      ctx.strokeStyle = '#4ade9a';
       ctx.lineWidth   = 1.5;
-      ctx.shadowColor = '#3dffa0';
-      ctx.shadowBlur  = 6;
       ctx.beginPath();
       pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.stroke();
-      ctx.restore();
 
-      /* Fill */
       ctx.beginPath();
       pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-      ctx.fillStyle = 'rgba(61,255,160,.06)';
+      ctx.fillStyle = 'rgba(74,222,154,.08)';
       ctx.fill();
     }
 
-    /* ── Focus bar colour ────────────────────────────────────────────── */
+    /* ── Focus colour ────────────────────────────────────────────────── */
     function focusColor(pct) {
       if (pct >= 75) return 'var(--green)';
       if (pct >= 45) return 'var(--amber)';
       return 'var(--red)';
     }
 
-    /* ── Frame Fetching (Event Driven, No Flickering) ────────────────── */
+    /* ── Frame fetching ──────────────────────────────────────────────── */
     const visibleFeed = document.getElementById('feed');
-    const bufferImg = new Image();
+    const bufferImg   = new Image();
 
     bufferImg.onload = () => {
-      // Only swap the source once the image is fully downloaded
       visibleFeed.src = bufferImg.src;
       fc++;
-      // Immediately fetch the next frame
       requestNextFrame();
     };
-
-    bufferImg.onerror = () => {
-      // If a frame drops/fails, wait half a second before trying again
-      setTimeout(requestNextFrame, 500);
-    };
+    bufferImg.onerror = () => setTimeout(requestNextFrame, 500);
 
     function requestNextFrame() {
       bufferImg.src = '/frame.jpg?' + Date.now();
     }
 
-    /* ── Status Fetching (Promise Chaining) ──────────────────────────── */
+    /* ── Status polling ──────────────────────────────────────────────── */
     function fetchStatus() {
       fetch('/status')
         .then(r => r.json())
@@ -574,24 +462,21 @@ HTML = """<!DOCTYPE html>
           const pct    = parseFloat(d.percent);
           const preset = d.preset;
 
-          /* Sharpness tile */
-          document.getElementById('sharp-val').textContent = isNaN(sharp) ? '—' : sharp.toFixed(0);
+          document.getElementById('sharp-val').textContent =
+            isNaN(sharp) ? '—' : sharp.toFixed(0);
 
-          /* Focus bar */
-          const col = focusColor(pct);
+          const col  = focusColor(pct);
           const fpEl = document.getElementById('focus-pct');
-          fpEl.textContent = pct.toFixed(1) + '%';
-          fpEl.style.color = col;
+          fpEl.textContent  = pct.toFixed(1) + '%';
+          fpEl.style.color  = col;
           const bar = document.getElementById('bar');
           bar.style.width           = Math.min(100, pct) + '%';
           bar.style.backgroundColor = col;
 
-          /* Preset buttons */
           document.querySelectorAll('.preset-btn').forEach(b => {
             b.classList.toggle('active', b.dataset.preset === preset);
           });
 
-          /* Sparkline */
           if (!isNaN(sharp)) {
             hist.push(sharp);
             if (hist.length > MAX_H) hist.shift();
@@ -599,37 +484,25 @@ HTML = """<!DOCTYPE html>
           }
         })
         .catch(() => {})
-        .finally(() => {
-          // Wait 250ms after the last request finished before polling again
-          setTimeout(fetchStatus, 250); 
-        });
+        .finally(() => setTimeout(fetchStatus, 250));
     }
 
-    /* ── Lightweight UI Loop (FPS Calculation only) ──────────── */
-    function updateUI() {
-      const now = Date.now();
+    /* ── FPS counter ─────────────────────────────────────────────────── */
+    setInterval(() => {
+      const now     = Date.now();
       const elapsed = (now - lastT) / 1000;
       if (elapsed >= 1.0) {
-        measFps = Math.round(fc / elapsed);
-        fc = 0; 
+        document.getElementById('fps-val').textContent = Math.round(fc / elapsed);
+        fc = 0;
         lastT = now;
-        document.getElementById('fps-val').textContent = measFps;
       }
-    }
+    }, 100);
 
-    /* ── Controls ────────────────────────────────────────────────────── */
+    /* ── Preset control ──────────────────────────────────────────────── */
     function setPreset(btn) {
       fetch('/config?preset=' + btn.dataset.preset).catch(() => {});
     }
 
-    function toggleAutoFps(pill) {
-      pill.classList.toggle('on');
-      const on = pill.classList.contains('on');
-      fetch('/config?auto_fps=' + (on ? '1' : '0')).catch(() => {});
-    }
-
-    // Bootstrap the loops
-    setInterval(updateUI, 100); 
     requestNextFrame();
     fetchStatus();
   </script>
@@ -665,15 +538,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(503)
 
     def _serve_status(self):
-        global auto_fps_enabled
         with sharp_lock:
             sv = sharpness_val
             sp = sharpness_pct
         with _preset_lock:
             preset = current_preset
             tfps   = target_fps
-        with _auto_fps_lock:
-            afps = auto_fps_enabled
         res = "×".join(str(d) for d in PRESETS[preset]["size"])
         payload = json.dumps({
             "sharpness":  f"{sv:.1f}",
@@ -681,12 +551,11 @@ class Handler(BaseHTTPRequestHandler):
             "preset":     preset,
             "resolution": res,
             "target_fps": tfps,
-            "auto_fps":   afps,
         }).encode()
         self._write(200, "application/json", payload)
 
     def _handle_config(self, query: str):
-        global _pending_preset, auto_fps_enabled
+        global _pending_preset
         params = parse_qs(query)
 
         if "preset" in params:
@@ -694,11 +563,6 @@ class Handler(BaseHTTPRequestHandler):
             if name in PRESETS:
                 with _preset_lock:
                     _pending_preset = name
-
-        if "auto_fps" in params:
-            val = params["auto_fps"][0]
-            with _auto_fps_lock:
-                auto_fps_enabled = val == "1"
 
         self._write(200, "application/json", b'{"ok":true}')
 
