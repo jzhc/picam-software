@@ -98,12 +98,12 @@ HTML = """<!DOCTYPE html>
             align-items:center; justify-content:center;
             min-height:100vh; gap:12px; padding:20px;
         }
-        h1 { font-size:11px; letter-spacing:5px; color:#444; text-transform:uppercase; }
+        h1 { font-size:11px; letter-spacing:5px; color:#ffffff; text-transform:uppercase; }
         img { width:640px; max-width:100%; border:1px solid #1a1a1a; background:#111; }
-        .stats { display:flex; gap:40px; font-size:13px; color:#555; }
+        .stats { display:flex; gap:40px; font-size:13px; color:#ffffff; }
         .stat { display:flex; flex-direction:column; align-items:center; gap:4px; }
-        .label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#444; }
-        .val { color:#ffffff; font-weight:bold; font-size:20px; }
+        .label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#ffffff; }
+        .val { color:#7ec87e; font-weight:bold; font-size:20px; }
     </style>
 </head>
 <body>
