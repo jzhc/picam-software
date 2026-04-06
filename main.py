@@ -7,15 +7,15 @@ No GPIO. Preview only.
 """
 
 from picamera2 import Picamera2
-from PIL import Image
 from collections import deque
-import sharpness_c
+import camera_utils
 import numpy as np
 import time, threading, socket, io, json, logging
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # ── CONFIG ─────────────────────────────────────
 PREVIEW_RESOLUTION = (640, 480)
+JPEG_QUALITY       = 70
 SERVER_PORT        = 8000
 LOG_LEVEL          = logging.INFO
 # ───────────────────────────────────────────────
@@ -31,20 +31,14 @@ sharpness_val  = 0.0
 sharpness_pct  = 0.0
 sharp_lock     = threading.Lock()
 
-# rolling buffer of last 300 readings (~30 seconds at 10fps)
+# rolling buffer of last 300 readings (~30 seconds at 20fps)
 _sharp_history = deque(maxlen=300)
 
 # ── SHARPNESS ──────────────────────────────────
-def compute_sharpness(frame):
-    rgb = frame[:, :, :3].astype('uint8')
-    h, w = rgb.shape[:2]
-    return sharpness_c.compute_sharpness(bytes(rgb), w, h)
-
 def sharpness_to_pct(current):
     _sharp_history.append(current)
     if len(_sharp_history) < 10:
         return 0.0
-    # average of top 10% of readings = "best focus" reference
     sorted_vals = sorted(_sharp_history, reverse=True)
     top_n = max(1, len(sorted_vals) // 10)
     reference = sum(sorted_vals[:top_n]) / top_n
@@ -61,13 +55,16 @@ def frame_loop():
     log.info("Frame loop: running.")
 
     frame_count = 0
+    w, h = PREVIEW_RESOLUTION
 
     while True:
         try:
             frame = camera.capture_array()
+            raw = bytes(frame)
 
+            # sharpness every 3rd frame — zero copy buffer, downsample in C
             if frame_count % 3 == 0:
-                sharpness = compute_sharpness(frame)
+                sharpness = camera_utils.compute_sharpness(raw, w, h)
                 pct = sharpness_to_pct(sharpness)
                 with sharp_lock:
                     sharpness_val = sharpness
@@ -75,17 +72,16 @@ def frame_loop():
 
             frame_count += 1
 
-            img = Image.fromarray(frame[:, :, :3].astype('uint8'))
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=70)
+            # encode directly via libturbojpeg C API
+            buf = camera_utils.encode_jpeg(raw, w, h, JPEG_QUALITY)
             with frame_lock:
-                jpeg_frame = buf.getvalue()
+                jpeg_frame = buf
 
         except Exception as e:
             log.warning(f"Frame error: {e}")
             time.sleep(0.1)
 
-        time.sleep(0.1)   # ~10 FPS
+        time.sleep(0.05)   # ~20 FPS
 
 # ── HTML ───────────────────────────────────────
 HTML = """<!DOCTYPE html>
@@ -104,9 +100,7 @@ HTML = """<!DOCTYPE html>
         }
         h1 { font-size:11px; letter-spacing:5px; color:#444; text-transform:uppercase; }
         img { width:640px; max-width:100%; border:1px solid #1a1a1a; background:#111; }
-        .stats {
-            display:flex; gap:40px; font-size:13px; color:#555;
-        }
+        .stats { display:flex; gap:40px; font-size:13px; color:#555; }
         .stat { display:flex; flex-direction:column; align-items:center; gap:4px; }
         .label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#444; }
         .val { color:#7ec87e; font-weight:bold; font-size:20px; }
@@ -135,7 +129,7 @@ HTML = """<!DOCTYPE html>
                     document.getElementById('pct').textContent   = d.percent + '%';
                 })
                 .catch(() => {});
-        }, 100);
+        }, 50);
     </script>
 </body>
 </html>"""
@@ -202,7 +196,8 @@ def main():
     camera = Picamera2()
 
     config = camera.create_preview_configuration(
-        main={"size": PREVIEW_RESOLUTION},
+        main={"size": PREVIEW_RESOLUTION, "format": "RGB888"},
+        buffer_count=2,
         controls={
             "AeEnable":  True,
             "AwbEnable": True,

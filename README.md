@@ -4,17 +4,21 @@
 ```bash
 sudo apt update && sudo apt install -y \
     python3-picamera2 \
-    python3-pil \
     python3-numpy \
     python3-setuptools \
-    python3-dev
+    python3-dev \
+    python3-pip \
+    libturbojpeg0-dev
+```
+```bash
+python3 -m pip install PyTurboJPEG --break-system-packages
 ```
 
 ## ⚠️ Build First
 ```bash
 sudo python3 setup.py build_ext --inplace
 ```
-Only needs to be run once. Compiles the C sharpness extension. The main script will crash if this step is skipped.
+Only needs to be run once. Compiles the C extension (`camera_utils`) which handles sharpness computation and JPEG encoding. The main script will crash if this step is skipped.
 
 ## Running
 ```bash
@@ -26,11 +30,11 @@ Open the URL printed in the terminal in any browser on the same WiFi network. Us
 | File | Description |
 |---|---|
 | `main.py` | Main application — camera, web server, sharpness logic |
-| `sharpness.c` | C extension for fast sharpness computation |
+| `camera_utils.c` | C extension — sharpness computation, downsampling, and JPEG encoding via libturbojpeg |
 | `setup.py` | Builds the C extension |
 
 ## Web Interface
-Live preview updating at ~10fps with two focus metrics:
+Live preview at 640x480 targeting 15-20fps with two focus metrics:
 
 - **Sharpness** — raw Laplacian variance value
 - **Focus %** — relative focus percentage based on a rolling best-focus reference
