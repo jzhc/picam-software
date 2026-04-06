@@ -253,7 +253,7 @@ def frame_loop() -> None:
 # on the Pi.  Fonts load from Google Fonts if the browser has internet access,
 # otherwise falls back gracefully to system monospace.
 
-HTML = b"""<!DOCTYPE html>
+HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
