@@ -115,7 +115,7 @@ HTML = """<!DOCTYPE html>
             <span class="val" id="sharp">loading...</span>
         </div>
         <div class="stat">
-            <span class="label">Focus %</span>
+            <span class="label">Relative Focus %</span>
             <span class="val" id="pct">loading...</span>
         </div>
     </div>
