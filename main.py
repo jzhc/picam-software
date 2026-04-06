@@ -103,7 +103,7 @@ HTML = """<!DOCTYPE html>
         .stats { display:flex; gap:40px; font-size:13px; color:#555; }
         .stat { display:flex; flex-direction:column; align-items:center; gap:4px; }
         .label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#444; }
-        .val { color:#7ec87e; font-weight:bold; font-size:20px; }
+        .val { color:#ffffff; font-weight:bold; font-size:20px; }
     </style>
 </head>
 <body>
