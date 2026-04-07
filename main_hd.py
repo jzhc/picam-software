@@ -2,6 +2,12 @@
 """
 Pi HQ Camera — Native DRM preview with terminal controls.
 Optimized for Raspberry Pi OS Lite (Command Line Only).
+
+Controls (single keypress in the terminal, no Enter needed):
+  1  →  low    preset  (320×240  / 30 fps)
+  2  →  medium preset  (640×480  / 20 fps)
+  3  →  high   preset  (1280×960 / 10 fps)
+  q  →  quit
 """
 
 import logging
@@ -25,23 +31,10 @@ LOG_LEVEL      = logging.INFO
 # 0.5 → centre 50 % × 50 % = 25 % of pixels, ~4× less work.
 SHARPNESS_CROP = 0.5
 
-# currently capped at 40 due to memory maxing
-# can not reach fps goal of 60, or 90 in medium / low preset
-
-# note that max possible width that laplacian sharpness calc
-# can do is 1920 pixels in width
-
-# high setting would be SCALE = 4
-SCALE = 6
-
-LIM_W = min(int(320 * (4 / 3) * SCALE), 1920)
-LIM_H = int(240 * SCALE)
-
 PRESETS = {
-    "low":    {"size": (320,  240),      "fps": 90, "label": "320×240  / 90 fps"},
-    "medium": {"size": (640,  480),      "fps": 60, "label": "640×480  / 60 fps"},
-    "high":   {"size": (1280, 960),      "fps": 40, "label": "1280×960 / 40 fps"},
-    "lim":    {"size": (LIM_W, LIM_H),   "fps": 40, "label": f"{LIM_W}×{LIM_H} / 40 fps"},
+    "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
+    "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
+    "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
@@ -102,7 +95,7 @@ def _apply_preset(name: str) -> None:
     sys.stdout.flush()
 
     camera.stop()
-
+    
     config = camera.create_preview_configuration(
         main={"size": p["size"], "format": "RGB888"},
         controls={
@@ -112,7 +105,7 @@ def _apply_preset(name: str) -> None:
         },
         buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
-
+    
     camera.configure(config)
     # We DO NOT call start_preview() here. The DRM preview is already hooked up.
     # picamera2 will automatically route the new stream to the existing preview.
@@ -127,18 +120,16 @@ def _apply_preset(name: str) -> None:
 
 def _print_controls() -> None:
     """Print the key legend. Uses \\r\\n because the terminal is in raw mode."""
-    lim_label = PRESETS["lim"]["label"]
     lines = [
         "",
-        "┌──────────────────────────────────────┐",
-        "│       Pi HQ Camera — Controls        │",
-        "├──────────────────────────────────────┤",
-        "│  1  →  low    (320×240  / 90fps)     │",
-        "│  2  →  medium (640×480  / 60fps)     │",
-        "│  3  →  high   (1280×960 / 40fps)     │",
-        f"│  4  →  lim    ({lim_label})  │",
-        "│  q  →  quit                          │",
-        "└──────────────────────────────────────┘",
+        "┌─────────────────────────────────┐",
+        "│     Pi HQ Camera — Controls     │",
+        "├─────────────────────────────────┤",
+        "│  1  →  low    (320×240  / 30fps)│",
+        "│  2  →  medium (640×480  / 20fps)│",
+        "│  3  →  high   (1280×960 / 10fps)│",
+        "│  q  →  quit                     │",
+        "└─────────────────────────────────┘",
         "",
     ]
     sys.stdout.write("\r\n".join(lines) + "\r\n")
@@ -155,7 +146,7 @@ def terminal_input_loop() -> None:
     fd  = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
 
-    key_map = {"1": "low", "2": "medium", "3": "high", "4": "lim"}
+    key_map = {"1": "low", "2": "medium", "3": "high"}
 
     try:
         tty.setraw(fd)
@@ -165,10 +156,6 @@ def terminal_input_loop() -> None:
             ch = sys.stdin.read(1)
 
             if ch == "q":
-                _quit.set()
-                break
-
-            if ch == "\x03":
                 _quit.set()
                 break
 
@@ -241,8 +228,6 @@ def frame_loop() -> None:
             # tobytes() copies only the crop (~25 % of frame pixels).
             # request.release() then happens immediately, returning the DMA
             # buffer to the camera pipeline without waiting on the worker.
-            # note that the sharpness calculation already downscales the
-            # image by 2x.
             if frame_count % 3 == 0 and _sharp_future is None:
                 ch   = int(h_f * SHARPNESS_CROP) & ~1
                 cw   = int(w_f * SHARPNESS_CROP) & ~1
@@ -307,11 +292,11 @@ def main() -> None:
         buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
     camera.configure(config)
-
+    
     # Attach DRM preview ONCE here.
     camera.start_preview(Preview.DRM)
     camera.start()
-
+    
     log.info("Camera started — preset: %s", p["label"])
 
     # Input thread is a daemon so it exits automatically if the main thread exits.
