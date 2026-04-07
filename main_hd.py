@@ -32,18 +32,16 @@ SHARPNESS_CROP = 0.5
 # can do is 1920 pixels in width
 
 # high setting would be SCALE = 4
-# lim preset is capped to SCALE = 4 to stay within the 1920px width limit
-# (320 * 4/3 * 4 = 1706px, 320 * 4/3 * 5 = 2133px — too wide)
 SCALE = 6
-LIM_SCALE = min(SCALE, 4)
-_LIM_W = int(320 * (4 / 3) * LIM_SCALE)
-_LIM_H = int(240 * LIM_SCALE)
+
+LIM_W = min(int(320 * (4 / 3) * SCALE), 1920)
+LIM_H = int(240 * SCALE)
 
 PRESETS = {
-    "low":    {"size": (320,  240),        "fps": 90, "label": "320×240  / 90 fps"},
-    "medium": {"size": (640,  480),        "fps": 60, "label": "640×480  / 60 fps"},
-    "high":   {"size": (1280, 960),        "fps": 40, "label": "1280×960 / 40 fps"},
-    "lim":    {"size": (_LIM_W, _LIM_H),   "fps": 40, "label": f"{_LIM_W}×{_LIM_H} / 40 fps"},
+    "low":    {"size": (320,  240),      "fps": 90, "label": "320×240  / 90 fps"},
+    "medium": {"size": (640,  480),      "fps": 60, "label": "640×480  / 60 fps"},
+    "high":   {"size": (1280, 960),      "fps": 40, "label": "1280×960 / 40 fps"},
+    "lim":    {"size": (LIM_W, LIM_H),   "fps": 40, "label": f"{LIM_W}×{LIM_H} / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
@@ -104,7 +102,7 @@ def _apply_preset(name: str) -> None:
     sys.stdout.flush()
 
     camera.stop()
-    
+
     config = camera.create_preview_configuration(
         main={"size": p["size"], "format": "RGB888"},
         controls={
@@ -114,7 +112,7 @@ def _apply_preset(name: str) -> None:
         },
         buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
-    
+
     camera.configure(config)
     # We DO NOT call start_preview() here. The DRM preview is already hooked up.
     # picamera2 will automatically route the new stream to the existing preview.
@@ -129,17 +127,18 @@ def _apply_preset(name: str) -> None:
 
 def _print_controls() -> None:
     """Print the key legend. Uses \\r\\n because the terminal is in raw mode."""
+    lim_label = PRESETS["lim"]["label"]
     lines = [
         "",
-        "┌──────────────────────────────────────────┐",
-        "│        Pi HQ Camera — Controls           │",
-        "├──────────────────────────────────────────┤",
-        "│  1  →  low    (320×240  / 90fps)         │",
-        "│  2  →  medium (640×480  / 60fps)         │",
-        "│  3  →  high   (1280×960 / 40fps)         │",
-        f"│  4  →  lim    ({_LIM_W}×{_LIM_H} / 40fps)         │",
-        "│  q  →  quit                              │",
-        "└──────────────────────────────────────────┘",
+        "┌──────────────────────────────────────┐",
+        "│       Pi HQ Camera — Controls        │",
+        "├──────────────────────────────────────┤",
+        "│  1  →  low    (320×240  / 90fps)     │",
+        "│  2  →  medium (640×480  / 60fps)     │",
+        "│  3  →  high   (1280×960 / 40fps)     │",
+        f"│  4  →  lim    ({lim_label})  │",
+        "│  q  →  quit                          │",
+        "└──────────────────────────────────────┘",
         "",
     ]
     sys.stdout.write("\r\n".join(lines) + "\r\n")
@@ -308,11 +307,11 @@ def main() -> None:
         buffer_count=4,   # DRM holds 1, capture holds 1, 2 spare — no starvation
     )
     camera.configure(config)
-    
+
     # Attach DRM preview ONCE here.
     camera.start_preview(Preview.DRM)
     camera.start()
-    
+
     log.info("Camera started — preset: %s", p["label"])
 
     # Input thread is a daemon so it exits automatically if the main thread exits.
