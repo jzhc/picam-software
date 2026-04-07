@@ -32,16 +32,18 @@ SHARPNESS_CROP = 0.5
 # can do is 1920 pixels in width
 
 # high setting would be SCALE = 4
+# lim preset is capped to SCALE = 4 to stay within the 1920px width limit
+# (320 * 4/3 * 4 = 1706px, 320 * 4/3 * 5 = 2133px — too wide)
 SCALE = 6
-
-LIM_W = int(320*(4/3)*SCALE)
-LIM_H = int(240*SCALE)
+LIM_SCALE = min(SCALE, 4)
+_LIM_W = int(320 * (4 / 3) * LIM_SCALE)
+_LIM_H = int(240 * LIM_SCALE)
 
 PRESETS = {
-    "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
-    "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
-    "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
-    "lim":   {"size": (min(LIM_W, 1920),LIM_H), "fps": 40, "label": "Dynamic / 40 fps"},
+    "low":    {"size": (320,  240),        "fps": 90, "label": "320×240  / 90 fps"},
+    "medium": {"size": (640,  480),        "fps": 60, "label": "640×480  / 60 fps"},
+    "high":   {"size": (1280, 960),        "fps": 40, "label": "1280×960 / 40 fps"},
+    "lim":    {"size": (_LIM_W, _LIM_H),   "fps": 40, "label": f"{_LIM_W}×{_LIM_H} / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
@@ -129,14 +131,15 @@ def _print_controls() -> None:
     """Print the key legend. Uses \\r\\n because the terminal is in raw mode."""
     lines = [
         "",
-        "┌─────────────────────────────────┐",
-        "│     Pi HQ Camera — Controls     │",
-        "├─────────────────────────────────┤",
-        "│  1  →  low    (320×240  / 90fps)│",
-        "│  2  →  medium (640×480  / 60fps)│",
-        "│  3  →  high   (1280×960 / 40fps)│",
-        "│  q  →  quit                     │",
-        "└─────────────────────────────────┘",
+        "┌──────────────────────────────────────────┐",
+        "│        Pi HQ Camera — Controls           │",
+        "├──────────────────────────────────────────┤",
+        "│  1  →  low    (320×240  / 90fps)         │",
+        "│  2  →  medium (640×480  / 60fps)         │",
+        "│  3  →  high   (1280×960 / 40fps)         │",
+        f"│  4  →  lim    ({_LIM_W}×{_LIM_H} / 40fps)         │",
+        "│  q  →  quit                              │",
+        "└──────────────────────────────────────────┘",
         "",
     ]
     sys.stdout.write("\r\n".join(lines) + "\r\n")
