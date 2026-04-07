@@ -164,6 +164,7 @@ def terminal_input_loop() -> None:
                 break
 
             if ch == "\x03":
+                _quit.set()
                 break
 
             if ch in key_map:
