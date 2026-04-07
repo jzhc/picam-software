@@ -41,7 +41,7 @@ PRESETS = {
     "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
     "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
     "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
-    "lim":   {"size": (LIM_W,LIM_H), "fps": 40, "label": "Dynamic / 40 fps"},
+    "lim":   {"size": (min(LIM_W, 1920),LIM_H), "fps": 40, "label": "Dynamic / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
