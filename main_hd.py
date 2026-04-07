@@ -31,10 +31,17 @@ LOG_LEVEL      = logging.INFO
 # 0.5 → centre 50 % × 50 % = 25 % of pixels, ~4× less work.
 SHARPNESS_CROP = 0.5
 
+# currently capped at 40 due to memory maxing
+# can not reach fps goal of 60, or 90 in medium / low preset
+
+# high setting would be SCALE = 4
+SCALE = 6
+
 PRESETS = {
     "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
     "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
     "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
+    "lim":   {"size": (320*((4/3) * SCALE),240 * SCALE), "fps": 40, "label": "Dynamic / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
@@ -125,9 +132,9 @@ def _print_controls() -> None:
         "┌─────────────────────────────────┐",
         "│     Pi HQ Camera — Controls     │",
         "├─────────────────────────────────┤",
-        "│  1  →  low    (320×240  / 30fps)│",
-        "│  2  →  medium (640×480  / 20fps)│",
-        "│  3  →  high   (1280×960 / 10fps)│",
+        "│  1  →  low    (320×240  / 90fps)│",
+        "│  2  →  medium (640×480  / 90fps)│",
+        "│  3  →  high   (1280×960 / 40fps)│",
         "│  q  →  quit                     │",
         "└─────────────────────────────────┘",
         "",
@@ -146,7 +153,7 @@ def terminal_input_loop() -> None:
     fd  = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
 
-    key_map = {"1": "low", "2": "medium", "3": "high"}
+    key_map = {"1": "low", "2": "medium", "3": "high", "4": "lim"}
 
     try:
         tty.setraw(fd)
@@ -157,6 +164,9 @@ def terminal_input_loop() -> None:
 
             if ch == "q":
                 _quit.set()
+                break
+
+            if ch == "\x03":
                 break
 
             if ch in key_map:
@@ -228,6 +238,8 @@ def frame_loop() -> None:
             # tobytes() copies only the crop (~25 % of frame pixels).
             # request.release() then happens immediately, returning the DMA
             # buffer to the camera pipeline without waiting on the worker.
+            # note that the sharpness calculation already downscales the
+            # image by 2x.
             if frame_count % 3 == 0 and _sharp_future is None:
                 ch   = int(h_f * SHARPNESS_CROP) & ~1
                 cw   = int(w_f * SHARPNESS_CROP) & ~1
