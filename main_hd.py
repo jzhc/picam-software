@@ -34,11 +34,14 @@ SHARPNESS_CROP = 0.5
 # high setting would be SCALE = 4
 SCALE = 6
 
+LIM_W = int(320*(4/3)*SCALE)
+LIM_H = int(240*SCALE)
+
 PRESETS = {
     "low":    {"size": (320,  240), "fps": 90, "label": "320×240  / 90 fps"},
     "medium": {"size": (640,  480), "fps": 60, "label": "640×480  / 60 fps"},
     "high":   {"size": (1280, 960), "fps": 40, "label": "1280×960 / 40 fps"},
-    "lim":   {"size": (320*((4/3) * SCALE),240 * SCALE), "fps": 40, "label": "Dynamic / 40 fps"},
+    "lim":   {"size": (LIM_W,LIM_H), "fps": 40, "label": "Dynamic / 40 fps"},
 }
 DEFAULT_PRESET = "medium"
 
