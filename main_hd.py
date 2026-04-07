@@ -2,12 +2,6 @@
 """
 Pi HQ Camera — Native DRM preview with terminal controls.
 Optimized for Raspberry Pi OS Lite (Command Line Only).
-
-Controls (single keypress in the terminal, no Enter needed):
-  1  →  low    preset  (320×240  / 30 fps)
-  2  →  medium preset  (640×480  / 20 fps)
-  3  →  high   preset  (1280×960 / 10 fps)
-  q  →  quit
 """
 
 import logging
@@ -33,6 +27,9 @@ SHARPNESS_CROP = 0.5
 
 # currently capped at 40 due to memory maxing
 # can not reach fps goal of 60, or 90 in medium / low preset
+
+# note that max possible width that laplacian sharpness calc
+# can do is 1920 pixels in width
 
 # high setting would be SCALE = 4
 SCALE = 6
@@ -133,7 +130,7 @@ def _print_controls() -> None:
         "│     Pi HQ Camera — Controls     │",
         "├─────────────────────────────────┤",
         "│  1  →  low    (320×240  / 90fps)│",
-        "│  2  →  medium (640×480  / 90fps)│",
+        "│  2  →  medium (640×480  / 60fps)│",
         "│  3  →  high   (1280×960 / 40fps)│",
         "│  q  →  quit                     │",
         "└─────────────────────────────────┘",
