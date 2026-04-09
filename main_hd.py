@@ -20,7 +20,8 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from picamera2 import Picamera2, Preview, NullPreview
+from picamera2 import Picamera2, Preview
+from picamera2.previews import NullPreview
 
 import camera_utils
 
