@@ -26,7 +26,7 @@ from picamera2.previews import NullPreview
 import camera_utils
 
 # TEMP
-DEBUG = true
+DEBUG = True
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
 LOG_LEVEL      = logging.INFO
