@@ -162,7 +162,7 @@ def terminal_input_loop() -> None:
         while not _quit.is_set():
             ch = sys.stdin.read(1)
 
-            if ch == "q":
+            if ch == ("q", "\x03"): # \x03 is ctrl + c
                 _quit.set()
                 break
 
