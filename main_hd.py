@@ -20,9 +20,12 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from picamera2 import Picamera2, Preview
+from picamera2 import Picamera2, Preview, NullPreview
 
 import camera_utils
+
+# TEMP
+DEBUG = true
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
 LOG_LEVEL      = logging.INFO
@@ -109,7 +112,10 @@ def _apply_preset(name: str) -> None:
     camera.configure(config)
     # We DO NOT call start_preview() here. The DRM preview is already hooked up.
     # picamera2 will automatically route the new stream to the existing preview.
-    camera.start()
+    if DEBUG:
+        camera.start(show_preview=False)
+    else:
+        camera.start()
 
     with _preset_lock:
         current_preset = name
@@ -294,8 +300,12 @@ def main() -> None:
     camera.configure(config)
     
     # Attach DRM preview ONCE here.
-    camera.start_preview(Preview.DRM)
-    camera.start()
+    if DEBUG:
+        camera.start(show_preview=False)
+    else:
+        camera.start_preview(Preview.DRM)
+        camera.start()
+
     
     log.info("Camera started — preset: %s", p["label"])
 
